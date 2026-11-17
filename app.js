@@ -207,8 +207,8 @@ function viewHome(){
   var next=null;L.some(function(lv){return parts(lv).some(function(k){if(!S.done[k]){next=k;return true;}return false;});});
   var tp=totalPct();
   return'<div class="hero"><div class="stack">'+
-  "<h1>Inglés de la primera toma al corte final.</h1>"+
-  '<p class="lead">Seis niveles con gramática explicada en español, escenas originales para entrenar el oído, práctica de pronunciación con micrófono y un examen por nivel. Al final, preparación para el TOEFL con su formato vigente.</p>'+
+  "<h1>Take One English</h1>"+
+  '<p class="lead">Curso de inglés de A1 a C2. Seis niveles con gramática explicada en español, escenas originales para entrenar el oído, práctica de pronunciación con micrófono y un examen por nivel. Al final, preparación para el TOEFL con su formato vigente.</p>'+
   '<div class="row"><a class="btn" href="#'+(next||"a1")+'">'+(tp>0?"Continuar donde me quedé":"Empezar en A1")+'</a><a class="btn ghost" href="#nivelacion">Hacer prueba de nivel</a></div>'+
   (S.place?'<p class="hint">Tu prueba de nivel sugirió empezar en <a href="#'+S.place+'">'+S.place.toUpperCase()+"</a>.</p>":"")+
   '</div><div class="screen" id="screen">'+heroScreen()+"</div></div>"+
