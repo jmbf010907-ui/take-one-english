@@ -46,19 +46,38 @@ function initCaps(){
     if(!t)return;TTS=t;
     if(t.onState)t.onState(function(o){document.body.classList.toggle("speaking",o.state==="speaking");});
   }).catch(function(){});
-  window.claude.use("dictation").then(function(d){
-    if(!d)return;DICT=d;document.body.classList.add("has-mic");
-    d.onPartial(function(o){if(DS){DS.partial=o.text||"";paintDS();}});
-    d.onFinal(function(o){if(DS){DS.text=(DS.text+" "+(o.text||"")).trim();DS.partial="";paintDS();if(DS.auto){d.stop().catch(function(){});}}});
-    d.onState(function(o){
-      if(o.state==="idle"&&DS){var s=DS;DS=null;clearTimer();
-        document.querySelectorAll(".mic.on").forEach(function(b){b.classList.remove("on");});
-        s.onDone((s.text||s.partial||"").trim());}
-    });
-  }).catch(function(){});
+  window.claude.use("dictation").then(function(d){ if(d)attachDict(d); }).catch(function(){});
   return true;
 }
-if(!initCaps()){setTimeout(initCaps,1200);}
+function attachDict(d){
+  if(DICT)return;DICT=d;document.body.classList.add("has-mic");
+  d.onPartial(function(o){if(DS){DS.partial=o.text||"";paintDS();}});
+  d.onFinal(function(o){if(DS){DS.text=(DS.text+" "+(o.text||"")).trim();DS.partial="";paintDS();if(DS.auto){d.stop().catch(function(){});}}});
+  d.onState(function(o){
+    if(o.state==="idle"&&DS){var s=DS;DS=null;clearTimer();
+      document.querySelectorAll(".mic.on").forEach(function(b){b.classList.remove("on");});
+      s.onDone((s.text||s.partial||"").trim());}
+  });
+}
+/* Fuera de Claude (por ejemplo en GitHub Pages) se usa el reconocimiento de voz del navegador */
+function webDict(){
+  var SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR)return null;
+  var cb={p:null,f:null,s:null},rec=null;
+  return{
+    onPartial:function(f){cb.p=f;},onFinal:function(f){cb.f=f;},onState:function(f){cb.s=f;},
+    start:function(){return new Promise(function(res,rej){
+      try{rec=new SR();rec.lang="en-US";rec.interimResults=true;rec.continuous=true;
+        rec.onresult=function(e){for(var i=e.resultIndex;i<e.results.length;i++){var t=e.results[i][0].transcript;if(e.results[i].isFinal){if(cb.f)cb.f({text:t});}else if(cb.p)cb.p({text:t});}};
+        rec.onerror=function(e){if(e.error==="not-allowed"||e.error==="service-not-allowed")rej({code:"not_granted"});};
+        rec.onend=function(){if(cb.s)cb.s({state:"idle",reason:"stopped"});};
+        rec.onstart=function(){if(cb.s)cb.s({state:"listening"});res();};
+        rec.start();}catch(err){rej({code:"failed"});}
+    });},
+    stop:function(){try{if(rec)rec.stop();}catch(e){}return Promise.resolve();}
+  };
+}
+function initStandalone(){if(window.claude&&window.claude.use)return;var w=webDict();if(w)attachDict(w);}
+if(!initCaps()){setTimeout(function(){if(!initCaps())initStandalone();},1200);}
 function paintDS(){var el=document.getElementById(DS.out);if(el)el.textContent=(DS.text+" "+DS.partial).trim()||"Escuchando…";}
 function toggleMic(btn,out,auto,onDone){
   if(!DICT)return;
@@ -114,7 +133,7 @@ function startTimer(elId,secs,onEnd){
   timerId=setInterval(function(){left--;paint();if(left<=0){clearTimer();if(onEnd)onEnd();}},1000);
 }
 function talkBox(key,prompt,secs,audio){
-  return'<div class="sp"><p class="mono">Respuesta libre · '+secs+" segundos</p><p class=\"sp-t\">"+esc(prompt)+"</p>"+
+  return'<div class="sp"><p class="kicker">Respuesta libre, '+secs+" segundos</p><p class=\"sp-t\">"+esc(prompt)+"</p>"+
   '<div class="row">'+(audio?sayBtn(prompt,"Escuchar pregunta"):"")+
   '<button type="button" class="mic" data-act="talk" data-key="'+key+'" data-secs="'+secs+'">'+IC.mic+" Grabar respuesta</button>"+
   '<button type="button" class="say" data-act="timer" data-key="'+key+'" data-secs="'+secs+'">Iniciar cronómetro</button>'+
@@ -122,6 +141,16 @@ function talkBox(key,prompt,secs,audio){
   '<p class="sp-out" id="out-'+key+'"></p><p class="sp-score" id="sc-'+key+'"></p></div>';
 }
 
+var VD=window.VIDEOS||[];
+var EMBED=!/claude|anthropic/i.test(location.hostname);
+function video(v){
+  var url="https://www.youtube.com/watch?v="+v.id;
+  var inner='<span class="playbtn">'+IC.play.replace('width="13" height="13"','width="24" height="24"')+"</span>";
+  var frame=EMBED?'<button type="button" class="vid-frame" data-act="video" data-id="'+v.id+'" style="background-image:url(https://i.ytimg.com/vi/'+v.id+'/hqdefault.jpg)" aria-label="Reproducir '+esc(v.t)+'">'+inner+"</button>"
+    :'<a class="vid-frame" href="'+url+'" target="_blank" rel="noopener" aria-label="Abrir en YouTube: '+esc(v.t)+'">'+inner+"</a>";
+  return'<figure class="vid">'+frame+"<figcaption><b>"+esc(v.t)+"</b><span>"+esc(v.kind)+"</span><p>"+esc(v.task)+'</p><a href="'+url+'" target="_blank" rel="noopener">Abrir en YouTube</a></figcaption></figure>';
+}
+function videos(level){var ls=[].concat(level);var l=VD.filter(function(v){return ls.indexOf(v.level)>=0;});return l.length?'<div class="vids">'+l.map(video).join("")+"</div>":"";}
 var QZ={};
 function quiz(id,items,o){o=o||{};QZ[id]={items:items,ans:items.map(function(){return null;}),exam:!!o.exam,done:false,onDone:o.onDone,msg:""};return'<div class="quiz" id="qz-'+id+'">'+quizInner(id)+"</div>";}
 function quizInner(id){
@@ -165,60 +194,62 @@ function bar(p,color){return'<div class="bar" style="--c:'+color+'"><i style="wi
 var heroIdx=0;
 function heroScreen(){
   var q=QU[heroIdx%QU.length];
-  return'<div class="frame"><div class="meta"><span>'+esc(q.film)+" · "+q.year+"</span><span>Nivel "+q.level+"</span></div>"+
+  return'<div class="screen-in"><div class="frame"><div class="meta"><span>'+esc(q.film)+", "+q.year+"</span><span>Nivel "+q.level+"</span></div>"+
   '<p class="en">'+esc(q.q)+'</p><p class="note">'+q.note+"</p></div>"+
-  '<div class="ctl"><div class="row">'+sayBtn(q.q,"Escuchar")+sayBtn(q.q,"Lento",true)+'</div><button type="button" class="say" data-act="nextq">Siguiente frase</button></div>';
+  '<div class="ctl"><div class="row">'+sayBtn(q.q,"Escuchar")+sayBtn(q.q,"Lento",true)+'</div><button type="button" class="say" data-act="nextq">Siguiente frase</button></div></div>';
 }
 function ticket(lv){
   var p=pct(lv);
   return'<a class="ticket" href="#'+lv.id+'" style="--c:'+lv.color+'"><div class="stub"><b>'+lv.name+"</b><span>"+esc(lv.title.split("-")[0])+"</span></div>"+
-  '<div class="body"><h3>'+esc(lv.es)+"</h3><p>"+esc(lv.desc)+'</p><div class="barlabel"><span>'+lv.units.length+" lecciones · escena · speaking · examen</span><span>"+p+"%</span></div>"+bar(p,lv.color)+"</div></a>";
+  '<div class="body"><h3>'+esc(lv.es)+"</h3><p>"+esc(lv.desc)+'</p><div class="barlabel"><span>'+lv.units.length+" lecciones, escena, speaking y examen</span><span>"+p+"%</span></div>"+bar(p,lv.color)+"</div></a>";
 }
 function viewHome(){
   var next=null;L.some(function(lv){return parts(lv).some(function(k){if(!S.done[k]){next=k;return true;}return false;});});
   var tp=totalPct();
-  return'<div class="hero"><div class="stack"><p class="mono">Curso completo · A1 a C2 · TOEFL</p>'+
-  "<h1>Inglés de la primera toma al <em>corte final</em>.</h1>"+
+  return'<div class="hero"><div class="stack">'+
+  "<h1>Inglés de la primera toma al corte final.</h1>"+
   '<p class="lead">Seis niveles con gramática explicada en español, escenas originales para entrenar el oído, práctica de pronunciación con micrófono y un examen por nivel. Al final, preparación para el TOEFL con su formato vigente.</p>'+
   '<div class="row"><a class="btn" href="#'+(next||"a1")+'">'+(tp>0?"Continuar donde me quedé":"Empezar en A1")+'</a><a class="btn ghost" href="#nivelacion">Hacer prueba de nivel</a></div>'+
   (S.place?'<p class="hint">Tu prueba de nivel sugirió empezar en <a href="#'+S.place+'">'+S.place.toUpperCase()+"</a>.</p>":"")+
   '</div><div class="screen" id="screen">'+heroScreen()+"</div></div>"+
-  '<section><div class="row" style="justify-content:space-between;margin-bottom:18px"><h2>Elige tu función</h2><span class="mono">Avance total '+tp+"%</span></div>"+
+  '<section><div class="row between" style="margin-bottom:22px"><h2>Elige tu función</h2><span class="kicker">Avance total: '+tp+"%</span></div>"+
   '<div class="tickets">'+L.map(ticket).join("")+
-  '<a class="ticket" href="#toefl" style="--c:#B8860B"><div class="stub"><b style="font-size:1.35rem">TOEFL</b><span>iBT</span></div><div class="body"><h3>Preparación TOEFL</h3><p>Formato vigente desde enero de 2026, práctica de las cuatro secciones, estrategias y plan de cuatro semanas.</p><div class="barlabel"><span>Reading · Listening · Writing · Speaking</span></div></div></a>'+
+  '<a class="ticket" href="#toefl" style="--c:#B8860B"><div class="stub"><b style="font-size:1.35rem">TOEFL</b><span>iBT</span></div><div class="body"><h3>Preparación TOEFL</h3><p>Formato vigente desde enero de 2026, práctica de las cuatro secciones, estrategias y plan de cuatro semanas.</p><div class="barlabel"><span>Reading, Listening, Writing y Speaking</span></div></div></a>'+
   "</div></section>"+
-  '<section><h2>Cómo se estudia aquí</h2><div class="grid3">'+
-  '<div class="card skill"><p class="mono">Gramática y vocabulario</p><h3>30 lecciones</h3><p>Cada una explica una estructura, da ejemplos con audio y termina con práctica corregida al instante.</p></div>'+
-  '<div class="card skill"><p class="mono">Listening</p><h3>Escenas de película</h3><p>Diálogos originales en seis géneros, con voces distintas, velocidad lenta y preguntas de comprensión.</p></div>'+
-  '<div class="card skill"><p class="mono">Speaking</p><h3>Repite y compárate</h3><p>Escuchas la frase, la dices al micrófono y ves qué palabras se entendieron y cuáles no.</p></div>'+
-  '<div class="card skill"><p class="mono">Exámenes</p><h3>Uno por nivel</h3><p>Doce preguntas con audio incluido. Apruebas con 70% y desbloqueas tu constancia del nivel.</p></div>'+
+  '<section><h2>Cómo se estudia aquí</h2><div class="cols">'+
+  "<div><h3>30 lecciones</h3><p>Cada una explica una estructura en español, da ejemplos con audio y termina con práctica corregida al instante.</p></div>"+
+  "<div><h3>Escenas para el oído</h3><p>Diálogos originales en seis géneros, con voces distintas, velocidad lenta y preguntas de comprensión.</p></div>"+
+  "<div><h3>Repite y compárate</h3><p>Escuchas la frase, la dices al micrófono y ves qué palabras se entendieron y cuáles no.</p></div>"+
+  "<div><h3>Un examen por nivel</h3><p>Doce preguntas con audio incluido. Con 70% apruebas y pasas al siguiente nivel.</p></div>"+
   "</div></section>"+
-  '<section><div class="grid2"><div class="card stack"><p class="mono">Cine</p><h3>Frases famosas y qué ver según tu nivel</h3><p class="hint">Doce líneas de película explicadas, recomendaciones por nivel y un método de cinco pasos para aprender con cualquier clip.</p><div><a class="btn ghost" href="#cine">Ir a Cine</a></div></div>'+
-  '<div class="card stack"><p class="mono">Frases</p><h3>Lo que de verdad se dice</h3><p class="hint">Frases listas para viajes, restaurante, trabajo, universidad y emergencias, todas con audio.</p><div><a class="btn ghost" href="#frases">Ir a Frases</a></div></div></div></section>';
+  '<section><h2>Empieza con un video</h2>'+videos(["a1","b2","c1"])+"</section>"+
+  '<section><div class="grid2"><div class="card stack"><h3>Cine: frases famosas, tráilers y qué ver según tu nivel</h3><p class="hint">Doce líneas de película explicadas, videos para practicar y un método de cinco pasos para aprender con cualquier clip.</p><div><a class="btn" href="#cine">Ir a Cine</a></div></div>'+
+  '<div class="card stack"><h3>Frases: lo que de verdad se dice</h3><p class="hint">Frases listas para viajes, restaurante, trabajo, universidad y emergencias, todas con audio.</p><div><a class="btn" href="#frases">Ir a Frases</a></div></div></div></section>';
 }
 
 function viewLevel(lv){
   var p=pct(lv),rows="";
   lv.units.forEach(function(u,i){var k=lv.id+"-u"+(i+1);
     rows+='<li><a href="#'+k+'" style="--c:'+lv.color+'"><span class="n">'+(i+1<10?"0":"")+(i+1)+"</span><span><b>"+esc(u.t)+"</b><small>"+esc(u.g)+"</small></span>"+(S.done[k]?'<span class="pill ok">Completada</span>':'<span class="pill">Lección</span>')+"</a></li>";});
-  var extra=[["escena","Escena: "+lv.scene.title,"Listening · "+lv.scene.genre,"Listening"],["speaking","Speaking del nivel","Repite, compárate y habla un minuto","Speaking"],["examen","Examen final "+lv.name,"12 preguntas · apruebas con 70%"+(S.exam[lv.id]!=null?" · mejor resultado "+S.exam[lv.id]+"%":""),"Examen"]];
+  var extra=[["escena","Escena: "+lv.scene.title,"Listening, "+lv.scene.genre.toLowerCase(),"Listening"],["speaking","Speaking del nivel","Repite, compárate y habla un minuto","Speaking"],["examen","Examen final "+lv.name,"12 preguntas, apruebas con 70%"+(S.exam[lv.id]!=null?". Mejor resultado: "+S.exam[lv.id]+"%":""),"Examen"]];
   extra.forEach(function(x,i){var k=lv.id+"-"+x[0];
     rows+='<li><a href="#'+k+'" style="--c:'+lv.color+'"><span class="n">'+(lv.units.length+i+1<10?"0":"")+(lv.units.length+i+1)+"</span><span><b>"+esc(x[1])+"</b><small>"+esc(x[2])+"</small></span>"+(S.done[k]?'<span class="pill ok">Completado</span>':'<span class="pill">'+x[3]+"</span>")+"</a></li>";});
-  return'<div class="lvhead" style="--c:'+lv.color+'"><div class="code">'+lv.name+'</div><div><p class="mono">'+esc(lv.title)+"</p><h1 style=\"font-size:clamp(1.8rem,4.5vw,3rem)\">"+esc(lv.es)+"</h1><p>"+esc(lv.desc)+'</p><div class="chips">'+lv.cando.map(function(c){return'<span class="chip">'+esc(c)+"</span>";}).join("")+"</div></div></div>"+
-  '<section><div class="barlabel" style="margin-bottom:6px"><span>Tu avance en '+lv.name+"</span><span>"+p+"%</span></div>"+bar(p,lv.color)+"</section>"+
+  return'<div class="lvhead" style="--c:'+lv.color+'"><div class="code">'+lv.name+'</div><div class="stack"><h1 style="font-size:clamp(1.9rem,4.5vw,3rem)">'+esc(lv.es)+" <span style=\"font-weight:400;color:var(--muted)\">"+esc(lv.title)+"</span></h1><p>"+esc(lv.desc)+'</p><div class="chips">'+lv.cando.map(function(c){return'<span class="chip">'+esc(c)+"</span>";}).join("")+"</div></div></div>"+
+  '<section style="margin-top:44px"><div class="barlabel" style="margin-bottom:10px"><span>Tu avance en '+lv.name+"</span><span>"+p+"%</span></div>"+bar(p,lv.color)+"</section>"+
   '<section><h2>Programa</h2><ol class="prog">'+rows+"</ol></section>"+
-  (S.done[lv.id+"-examen"]?'<section><div class="card stack" style="border:2px solid '+lv.color+'"><p class="mono">Constancia</p><h3>Nivel '+lv.name+" aprobado con "+S.exam[lv.id]+"%</h3><p class=\"hint\">Buen trabajo. "+(nextLevel(lv)?'Sigue con <a href="#'+nextLevel(lv).id+'">'+nextLevel(lv).name+"</a>.":'Estás listo para la <a href="#toefl">preparación TOEFL</a>.')+"</p></div></section>":"");
+  (videos(lv.id)?"<section><h2>Videos para este nivel</h2>"+videos(lv.id)+"</section>":"")+
+  (S.done[lv.id+"-examen"]?'<section><div class="card stack" style="border-left:10px solid '+lv.color+'"><h3>Constancia: nivel '+lv.name+" aprobado con "+S.exam[lv.id]+"%</h3><p class=\"hint\">Buen trabajo. "+(nextLevel(lv)?'Sigue con <a href="#'+nextLevel(lv).id+'">'+nextLevel(lv).name+"</a>.":'Estás listo para la <a href="#toefl">preparación TOEFL</a>.')+"</p></div></section>":"");
 }
 function nextLevel(lv){var i=L.indexOf(lv);return L[i+1]||null;}
-function crumb(lv,label){return'<p class="crumb"><a href="#inicio">Inicio</a> / <a href="#'+lv.id+'">'+lv.name+" "+esc(lv.es)+"</a> / "+esc(label)+"</p>";}
+function crumb(lv,label){return'<p class="crumb"><a href="#'+lv.id+'">Nivel '+lv.name+", "+esc(lv.es)+"</a> / "+esc(label)+"</p>";}
 
 function viewUnit(lv,n){
   var u=lv.units[n-1];if(!u)return viewLevel(lv);
   var key=lv.id+"-u"+n;
   var prev=n>1?lv.id+"-u"+(n-1):lv.id, next=n<lv.units.length?lv.id+"-u"+(n+1):lv.id+"-escena";
-  return'<div class="lesson stack">'+crumb(lv,"Lección "+n)+
-  '<p class="mono" style="color:'+lv.color+'">'+esc(u.g)+"</p><h1 style=\"font-size:clamp(1.9rem,5vw,3.2rem)\">"+esc(u.t)+"</h1>"+
-  '<section class="stack" style="margin-top:20px"><h2>Cómo funciona</h2><div class="card exp">'+u.exp+"</div></section>"+
+  return'<div class="lesson sheet stack">'+crumb(lv,"Lección "+n)+
+  '<h1>'+esc(u.t)+'</h1><p class="kicker">'+esc(u.g)+"</p>"+
+  '<section class="stack"><h2>Cómo funciona</h2><div class="card exp">'+u.exp+"</div></section>"+
   '<section class="stack"><h2>Ejemplos</h2><ul class="exlist">'+u.ex.map(function(e){return"<li>"+sayBtn(e[0])+'<div><div class="en">'+esc(e[0])+'</div><div class="es">'+esc(e[1])+"</div></div></li>";}).join("")+"</ul></section>"+
   '<section class="stack"><h2>Vocabulario</h2><div class="vocab">'+u.vocab.map(function(v){return"<div><b>"+esc(v[0])+"</b>"+sayBtn(v[0].replace(/\s*\(.*?\)/g,"").replace(/ \/ /g,", ").replace(/\+ -ing/g,""))+"<span>"+v[1]+"</span></div>";}).join("")+"</div></section>"+
   '<section class="stack"><h2>Práctica</h2>'+quiz(key,u.quiz,{onDone:function(p){if(p>=70){S.done[key]=true;save();return"Lección completada.";}return"Necesitas 70% para completarla. Repasa la explicación y repite.";}})+"</section>"+
@@ -226,46 +257,48 @@ function viewUnit(lv,n){
 }
 function viewScene(lv){
   var sc=lv.scene,key=lv.id+"-escena";
-  return'<div class="lesson stack">'+crumb(lv,"Escena")+
-  '<p class="mono" style="color:'+lv.color+'">Listening · '+esc(sc.genre)+'</p><h1 style="font-size:clamp(1.9rem,5vw,3.2rem)">'+esc(sc.title)+"</h1>"+
+  return'<div class="lesson sheet stack">'+crumb(lv,"Escena")+
+  '<h1>'+esc(sc.title)+'</h1><p class="kicker">Escena para listening, '+esc(sc.genre.toLowerCase())+"</p>"+
   '<p class="hint">'+esc(sc.ctx)+" Escucha dos veces sin leer, responde y después revisa el guion.</p>"+
   sceneBlock(key,sc)+
   '<section class="stack"><h2>Expresiones de la escena</h2><div class="vocab">'+sc.gloss.map(function(g){return"<div><b>"+esc(g[0])+"</b>"+sayBtn(g[0])+"<span>"+esc(g[1])+"</span></div>";}).join("")+"</div></section>"+
   '<section class="stack"><h2>Comprensión</h2>'+quiz(key,sc.q,{onDone:function(p){if(p>=66){S.done[key]=true;save();return"Escena completada.";}return"Vuelve a escuchar la escena e inténtalo otra vez.";}})+"</section>"+
   '<div class="pager"><a class="btn ghost" href="#'+lv.id+'">Volver al nivel</a><a class="btn" href="#'+lv.id+'-speaking">Ir a speaking</a></div></div>';
 }
-function micNote(){return'<p class="hint">El micrófono funciona en Chrome y en la app de escritorio de Claude, y la primera vez pide permiso. Sin micrófono puedes repetir en voz alta y escribir la frase para comprobarla.</p>';}
+function micNote(){return'<p class="hint">El micrófono funciona en Chrome y Edge, y la primera vez pide permiso. Sin micrófono puedes repetir en voz alta y escribir la frase para comprobarla.</p>';}
 function viewSpeaking(lv){
   var key=lv.id+"-speaking";
-  return'<div class="lesson stack">'+crumb(lv,"Speaking")+
-  '<p class="mono" style="color:'+lv.color+'">Speaking</p><h1 style="font-size:clamp(1.9rem,5vw,3.2rem)">Repite y compárate</h1>'+micNote()+
-  '<section class="stack" style="margin-top:20px"><h2>Shadowing</h2>'+lv.speak.map(function(t,i){return speakItem(lv.id+"s"+i,t);}).join("")+"</section>"+
+  return'<div class="lesson sheet stack">'+crumb(lv,"Speaking")+
+  '<h1>Repite y compárate</h1>'+micNote()+
+  '<section class="stack"><h2>Shadowing</h2>'+lv.speak.map(function(t,i){return speakItem(lv.id+"s"+i,t);}).join("")+"</section>"+
   '<section class="stack"><h2>Habla un minuto</h2>'+talkBox(lv.id+"talk",lv.talk,60)+"</section>"+
   '<div class="pager"><button type="button" class="btn ghost" data-act="markdone" data-key="'+key+'">'+(S.done[key]?"Práctica completada":"Marcar práctica como completada")+'</button><a class="btn" href="#'+lv.id+'-examen">Ir al examen</a></div></div>';
 }
 function viewExam(lv){
   var key=lv.id+"-examen";
-  return'<div class="lesson stack">'+crumb(lv,"Examen final")+
-  '<p class="mono" style="color:'+lv.color+'">Examen final</p><h1 style="font-size:clamp(1.9rem,5vw,3.2rem)">Examen '+lv.name+"</h1>"+
+  return'<div class="lesson sheet stack">'+crumb(lv,"Examen final")+
+  '<h1>Examen final '+lv.name+"</h1>"+
   '<p class="hint">Doce preguntas de gramática, vocabulario y comprensión auditiva. Las respuestas se muestran al entregar. Apruebas con 70%.</p>'+
   quiz(key,lv.exam,{exam:true,onDone:function(p){S.exam[lv.id]=Math.max(S.exam[lv.id]||0,p);if(p>=70)S.done[key]=true;save();var nx=nextLevel(lv);return p>=70?"Aprobaste el nivel "+lv.name+". "+(nx?'<a href="#'+nx.id+'">Continuar con '+nx.name+"</a>":'<a href="#toefl">Ir a la preparación TOEFL</a>'):"Aún no. Repasa las lecciones marcadas en rojo y vuelve a intentarlo.";}})+
   '<div class="pager"><a class="btn ghost" href="#'+lv.id+'">Volver al nivel</a></div></div>';
 }
 
 function viewCine(){
-  return'<div class="stack"><p class="mono">Cine</p><h1>Aprende con la pantalla grande</h1><p class="hint" style="max-width:60ch">Las películas tienen derechos de autor, así que aquí no se incrustan clips. Encontrarás escenas originales escritas para cada nivel, frases célebres muy breves explicadas y enlaces para buscar el tráiler oficial de cada recomendación.</p></div>'+
-  '<section><h2>Escenas originales del curso</h2><div class="tickets">'+L.map(function(lv){return'<a class="ticket" href="#'+lv.id+'-escena" style="--c:'+lv.color+'"><div class="stub"><b>'+lv.name+"</b><span>Escena</span></div><div class=\"body\"><h3>"+esc(lv.scene.title)+'</h3><p class="mono">'+esc(lv.scene.genre)+"</p><p>"+esc(lv.scene.ctx)+"</p></div></a>";}).join("")+"</div></section>"+
-  '<section><h2>Frases de película</h2><div class="grid3">'+QU.map(function(q){var lv=byId(q.level.toLowerCase());return'<div class="card quote"><div class="row" style="justify-content:space-between"><span class="src">'+esc(q.film)+" · "+q.year+'</span><span class="pill lv" style="--c:'+lv.color+'">'+q.level+'</span></div><p class="q-en">'+esc(q.q)+'</p><p class="hint">'+q.note+'</p><div class="row">'+sayBtn(q.q,"Escuchar")+sayBtn(q.q,"Lento",true)+"</div></div>";}).join("")+"</div></section>"+
-  '<section><h2>Qué ver según tu nivel</h2><div class="card tablewrap"><table><thead><tr><th>Nivel</th><th>Por qué</th><th>Películas (abre la búsqueda del tráiler oficial)</th></tr></thead><tbody>'+
-  FI.map(function(f){return'<tr><td class="num">'+f.level+"</td><td>"+esc(f.why)+"</td><td>"+f.list.map(function(m){return'<a href="https://www.youtube.com/results?search_query='+encodeURIComponent(m+" official trailer")+'" target="_blank" rel="noopener">'+esc(m)+"</a>";}).join(" · ")+"</td></tr>";}).join("")+"</tbody></table></div></section>"+
+  return'<div class="stack"><h1>Aprende con la pantalla grande</h1><p class="hint" style="font-size:1.05rem">Videos y tráilers para practicar, escenas originales escritas para cada nivel y frases célebres explicadas. Los videos son de YouTube y pertenecen a sus canales.</p></div>'+
+  "<section><h2>Tráilers para practicar</h2>"+videos("cine")+"</section>"+
+  "<section><h2>Charlas y clases en video</h2>"+videos(["a1","a2","b1","b2","c1","c2"])+"</section>"+
+  '<section><h2>Escenas originales del curso</h2><div class="tickets">'+L.map(function(lv){return'<a class="ticket" href="#'+lv.id+'-escena" style="--c:'+lv.color+'"><div class="stub"><b>'+lv.name+"</b><span>"+esc(lv.scene.genre)+"</span></div><div class=\"body\"><h3>"+esc(lv.scene.title)+"</h3><p>"+esc(lv.scene.ctx)+"</p></div></a>";}).join("")+"</div></section>"+
+  '<section><h2>Frases de película</h2><div class="grid3">'+QU.map(function(q){var lv=byId(q.level.toLowerCase());return'<div class="card quote"><div class="row between"><span class="src">'+esc(q.film)+", "+q.year+'</span><span class="pill lv" style="--c:'+lv.color+'">'+q.level+'</span></div><p class="q-en">'+esc(q.q)+'</p><p class="hint">'+q.note+'</p><div class="row">'+sayBtn(q.q,"Escuchar")+sayBtn(q.q,"Lento",true)+"</div></div>";}).join("")+"</div></section>"+
+  '<section><h2>Qué ver según tu nivel</h2><div class="card tablewrap"><table><thead><tr><th>Nivel</th><th>Por qué</th><th>Películas (abre la búsqueda del tráiler)</th></tr></thead><tbody>'+
+  FI.map(function(f){return'<tr><td class="num">'+f.level+"</td><td>"+esc(f.why)+"</td><td>"+f.list.map(function(m){return'<a href="https://www.youtube.com/results?search_query='+encodeURIComponent(m+" official trailer")+'" target="_blank" rel="noopener">'+esc(m)+"</a>";}).join(", ")+"</td></tr>";}).join("")+"</tbody></table></div></section>"+
   '<section><h2>Método para aprender con cualquier clip</h2><ol class="steps"><li><b>Mira sin subtítulos</b>Dos minutos como máximo. Anota de qué crees que trata.</li><li><b>Subtítulos en inglés</b>Repite el clip y apunta cinco palabras o frases nuevas.</li><li><b>Pausa y repite</b>Imita cada línea con el mismo ritmo y entonación.</li><li><b>Sin sonido</b>Di tú el diálogo mientras corre la imagen.</li><li><b>Úsalo mañana</b>Escribe tres oraciones tuyas con lo que aprendiste.</li></ol></section>';
 }
 function viewFrases(){
-  return'<div class="stack"><p class="mono">Frases</p><h1>Lo que de verdad se dice</h1><p class="hint">Toca el botón para escuchar cada frase. Repítela en voz alta tres veces.</p></div>'+
-  PH.map(function(c){return'<section><h2>'+esc(c.cat)+'</h2><ul class="exlist">'+c.items.map(function(e){return"<li>"+sayBtn(e[0])+'<div><div class="en">'+esc(e[0])+'</div><div class="es">'+esc(e[1])+"</div></div></li>";}).join("")+"</ul></section>";}).join("");
+  return'<div class="stack"><h1>Lo que de verdad se dice</h1><p class="hint" style="font-size:1.05rem">Toca el botón para escuchar cada frase y repítela en voz alta tres veces.</p></div>'+
+  '<div class="sheet" style="margin-top:36px">'+PH.map(function(c,i){return'<section'+(i?"":' style="margin-top:0"')+'><h2>'+esc(c.cat)+'</h2><ul class="exlist">'+c.items.map(function(e){return"<li>"+sayBtn(e[0])+'<div><div class="en">'+esc(e[0])+'</div><div class="es">'+esc(e[1])+"</div></div></li>";}).join("")+"</ul></section>";}).join("")+"</div>";
 }
 function viewPlacement(){
-  return'<div class="lesson stack"><p class="mono">Prueba de nivel</p><h1>¿Por dónde empiezo?</h1><p class="hint">Dieciocho preguntas que suben de dificultad. Si no sabes una, elige la que te suene mejor. El resultado te sugiere un nivel de inicio.</p>'+
+  return'<div class="lesson sheet stack"><h1>¿Por dónde empiezo?</h1><p class="hint">Dieciocho preguntas que suben de dificultad. Si no sabes una, elige la que te suene mejor. El resultado te sugiere un nivel de inicio.</p>'+
   quiz("place",PL,{exam:true,onDone:function(p,ok){var i=Math.min(5,Math.floor(Math.max(0,ok-1)/3));var lv=L[i];S.place=lv.id;save();return"Nivel sugerido: <b>"+lv.name+" "+lv.es+'</b>. <a href="#'+lv.id+'">Empezar en '+lv.name+"</a>";}})+"</div>";
 }
 
@@ -282,44 +315,45 @@ function ctwHTML(){
   var c=T.ctw;
   return esc(c.text).replace(/\{(\d+)\}/g,function(m,k){var g=c.gaps[+k];return'<span class="gap">'+esc(g[0])+'<input type="text" id="ctw-'+k+'" size="'+(g[1].length+1)+'" maxlength="'+g[1].length+'" aria-label="Completa la palabra '+(+k+1)+'" autocomplete="off" autocapitalize="off" spellcheck="false"></span>';});
 }
-function writeBox(id,ph){return'<textarea id="'+id+'" data-count="'+id+'-n" placeholder="'+esc(ph)+'"></textarea><p class="mono" id="'+id+'-n">0 palabras</p>';}
+function writeBox(id,ph){return'<textarea id="'+id+'" data-count="'+id+'-n" placeholder="'+esc(ph)+'"></textarea><p class="kicker" id="'+id+'-n">0 palabras</p>';}
 function viewToefl(){
   var tabs=[["formato","Formato y puntaje"],["reading","Reading"],["listening","Listening"],["writing","Writing"],["speaking","Speaking"],["plan","Estrategias y plan"]];
-  var h='<div class="stack"><p class="mono">Preparación TOEFL iBT</p><h1>El examen, sección por sección</h1><p class="hint" style="max-width:62ch">Práctica con los tipos de tarea del formato que entró en vigor el 21 de enero de 2026. Los textos y audios son originales del curso, no reactivos oficiales.</p></div>'+
-  '<div class="tabs" role="tablist">'+tabs.map(function(t){return'<button type="button" role="tab" aria-selected="'+(tab===t[0])+'" class="'+(tab===t[0]?"on":"")+'" data-act="tab" data-tab="'+t[0]+'">'+t[1]+"</button>";}).join("")+"</div>";
+  var h='<div class="stack"><h1>TOEFL iBT, sección por sección</h1><p class="hint" style="font-size:1.05rem">Práctica con los tipos de tarea del formato que entró en vigor el 21 de enero de 2026. Los textos y audios son originales del curso, no reactivos oficiales.</p></div>'+
+  '<div class="tabs" role="tablist">'+tabs.map(function(t){return'<button type="button" role="tab" aria-selected="'+(tab===t[0])+'" class="'+(tab===t[0]?"on":"")+'" data-act="tab" data-tab="'+t[0]+'">'+t[1]+"</button>";}).join("")+'</div><div class="sheet">';
   if(tab==="formato"){
     h+='<div class="grid2"><div class="card tablewrap"><h3 style="margin-bottom:10px">Estructura</h3><table><thead><tr><th>Sección</th><th>Tipos de tarea</th></tr></thead><tbody>'+T.format.map(function(f){return"<tr><td><b>"+f.s+"</b></td><td>"+f.tasks.join("<br>")+'<br><span class="hint">'+f.tip+"</span></td></tr>";}).join("")+"</tbody></table></div>"+
     '<div class="card tablewrap"><h3 style="margin-bottom:10px">Escala de 1 a 6 y su equivalencia MCER</h3><table><thead><tr><th>Puntaje</th><th>MCER</th><th>Descripción</th></tr></thead><tbody>'+T.scale.map(function(s){return'<tr><td class="num">'+s[0]+"</td><td><b>"+s[1]+"</b></td><td>"+s[2]+"</td></tr>";}).join("")+"</tbody></table>"+
     '<p class="hint" style="margin-top:12px">Cada sección y el total se reportan de 1 a 6 en pasos de 0.5; el total es el promedio de las cuatro. Durante la transición también aparece un puntaje comparable de 0 a 120. Orden del examen: Reading, Listening, Writing y Speaking. Confirma duración, costos y requisitos de tu universidad en <a href="https://www.ets.org/toefl" target="_blank" rel="noopener">ets.org/toefl</a>.</p></div></div>'+
-    '<section><h2>Qué nivel necesitas</h2><p class="hint" style="max-width:62ch">La mayoría de los posgrados pide un resultado en la zona de B2 alto o C1. Termina al menos el nivel <a href="#b2">B2</a> de este curso antes de enfocarte en simulacros.</p></section>';
+    '<section><h2>Qué nivel necesitas</h2><p class="hint">La mayoría de los posgrados pide un resultado en la zona de B2 alto o C1. Termina al menos el nivel <a href="#b2">B2</a> de este curso antes de enfocarte en simulacros.</p></section>'+
+    "<section><h2>El formato explicado en video</h2>"+videos("toefl")+"</section>";
   }
   if(tab==="reading"){
     h+='<section class="stack" style="margin-top:0"><h2>Complete the Words</h2><p class="hint">A cada palabra incompleta le falta la segunda mitad. Escribe las letras que faltan.</p><div class="card"><p class="ctw" id="ctw">'+ctwHTML()+'</p><div class="row" style="margin-top:14px"><button type="button" class="btn" data-act="ctw">Comprobar</button><span id="ctw-res" class="hint"></span></div></div></section>'+
-    '<section class="stack"><h2>Read in Daily Life</h2><p class="mono">'+esc(T.daily.title)+'</p><div class="card pre">'+esc(T.daily.text)+"</div>"+quiz("t-daily",T.daily.q)+"</section>"+
+    '<section class="stack"><h2>Read in Daily Life</h2><p class="kicker">'+esc(T.daily.title)+'</p><div class="card pre">'+esc(T.daily.text)+"</div>"+quiz("t-daily",T.daily.q)+"</section>"+
     '<section class="stack"><h2>Read an Academic Passage</h2><div class="card"><h3 style="margin-bottom:10px">'+esc(T.passage.title)+'</h3><p class="pre" style="max-width:68ch">'+esc(T.passage.text)+"</p></div>"+quiz("t-pass",T.passage.q)+"</section>";
   }
   if(tab==="listening"){
     h+='<section class="stack" style="margin-top:0"><h2>Listen and Choose a Response</h2><p class="hint">Escucha la pregunta una sola vez y elige la respuesta más natural.</p>'+quiz("t-resp",T.respond.map(function(r){return["Elige la mejor respuesta.",r[1],r[2],r[3],r[0]];}))+"</section>"+
-    '<section class="stack"><h2>Listen to a Conversation</h2><p class="mono">'+esc(T.conv.title)+"</p>"+sceneBlock("t-conv",T.conv)+quiz("t-conv",T.conv.q)+"</section>"+
-    '<section class="stack"><h2>Listen to an Announcement</h2><p class="mono">'+esc(T.announce.title)+'</p><div class="row">'+sayBtn(T.announce.text,"Reproducir anuncio")+"</div><details><summary>Ver transcripción</summary><p>"+esc(T.announce.text)+"</p></details>"+quiz("t-ann",T.announce.q)+"</section>"+
-    '<section class="stack"><h2>Listen to an Academic Talk</h2><p class="mono">'+esc(T.talk.title)+'</p><div class="row">'+sayBtn(T.talk.text,"Reproducir charla")+sayBtn(T.talk.text,"Lento",true)+"</div><details><summary>Ver transcripción</summary><p>"+esc(T.talk.text)+"</p></details>"+quiz("t-talk",T.talk.q)+"</section>";
+    '<section class="stack"><h2>Listen to a Conversation</h2><p class="kicker">'+esc(T.conv.title)+"</p>"+sceneBlock("t-conv",T.conv)+quiz("t-conv",T.conv.q)+"</section>"+
+    '<section class="stack"><h2>Listen to an Announcement</h2><p class="kicker">'+esc(T.announce.title)+'</p><div class="row">'+sayBtn(T.announce.text,"Reproducir anuncio")+"</div><details><summary>Ver transcripción</summary><p>"+esc(T.announce.text)+"</p></details>"+quiz("t-ann",T.announce.q)+"</section>"+
+    '<section class="stack"><h2>Listen to an Academic Talk</h2><p class="kicker">'+esc(T.talk.title)+'</p><div class="row">'+sayBtn(T.talk.text,"Reproducir charla")+sayBtn(T.talk.text,"Lento",true)+"</div><details><summary>Ver transcripción</summary><p>"+esc(T.talk.text)+"</p></details>"+quiz("t-talk",T.talk.q)+"</section>";
   }
   if(tab==="writing"){
     if(!BS.length)T.build.forEach(function(it){BS.push({pool:shuffle(it.a.split(" ")),picked:[],state:""});});
     h+='<section class="stack" style="margin-top:0"><h2>Build a Sentence</h2><p class="hint">Toca las palabras en orden para formar la oración.</p>'+T.build.map(function(it,i){return'<div class="card stack" id="bs-'+i+'">'+buildHTML(i)+"</div>";}).join("")+"</section>"+
-    '<section class="stack"><h2>Write an Email</h2><div class="card stack"><p>'+esc(T.email.prompt)+'</p><p class="hint">Apunta a unas 100 a 130 palabras en unos siete minutos.</p>'+writeBox("w-email","Dear Customer Service Team, …")+'<ul class="hint">'+T.email.checklist.map(function(c){return"<li>"+esc(c)+"</li>";}).join("")+'</ul><details><summary>Ver respuesta modelo</summary><p class="pre">'+esc(T.email.model)+"</p></details></div></section>"+
+    '<section class="stack"><h2>Write an Email</h2><div class="card stack"><p>'+esc(T.email.prompt)+'</p><p class="hint">Apunta a unas 100 a 130 palabras en unos siete minutos.</p>'+writeBox("w-email","Dear Customer Service Team, …")+'<ul class="checks">'+T.email.checklist.map(function(c){return"<li>"+esc(c)+"</li>";}).join("")+'</ul><details><summary>Ver respuesta modelo</summary><p class="pre">'+esc(T.email.model)+"</p></details></div></section>"+
     '<section class="stack"><h2>Write for an Academic Discussion</h2><div class="card stack"><div class="post"><b>Profesora</b>'+esc(T.discuss.prof)+"</div>"+T.discuss.posts.map(function(p){return'<div class="post"><b>'+esc(p[0])+"</b>"+esc(p[1])+"</div>";}).join("")+'<p class="hint">Escribe al menos 100 palabras en diez minutos: postura, razón, ejemplo y una idea que nadie haya dicho.</p>'+writeBox("w-disc","In my view, …")+'<details><summary>Ver respuesta modelo</summary><p class="pre">'+esc(T.discuss.model)+"</p></details></div></section>";
   }
   if(tab==="speaking"){
-    h+=micNote()+'<section class="stack" style="margin-top:18px"><h2>Listen and Repeat</h2><p class="hint">La oración está oculta, como en el examen. Escúchala, repítela y entonces se revela con tu resultado.</p>'+T.repeat.map(function(t,i){return speakItem("tr"+i,t,true);}).join("")+"</section>"+
+    h+=micNote()+'<section class="stack"><h2>Listen and Repeat</h2><p class="hint">La oración está oculta, como en el examen. Escúchala, repítela y entonces se revela con tu resultado.</p>'+T.repeat.map(function(t,i){return speakItem("tr"+i,t,true);}).join("")+"</section>"+
     '<section class="stack"><h2>Take an Interview</h2><p class="hint">Responde cada pregunta durante 45 segundos: respuesta directa, una razón y un ejemplo.</p>'+T.interview.map(function(q,i){return talkBox("ti"+i,q,45,true);}).join("")+"</section>";
   }
   if(tab==="plan"){
-    h+='<section class="stack" style="margin-top:0"><h2>Estrategias por sección</h2><div class="grid2">'+T.strategies.map(function(s){return'<div class="card skill"><p class="mono">'+s[0]+"</p><p style=\"color:var(--ink)\">"+s[1]+"</p></div>";}).join("")+"</div></section>"+
+    h+='<section class="stack" style="margin-top:0"><h2>Estrategias por sección</h2><div class="grid2">'+T.strategies.map(function(s){return'<div class="card skill"><p class="kicker">'+s[0]+"</p><p style=\"color:var(--ink)\">"+s[1]+"</p></div>";}).join("")+"</div></section>"+
     '<section class="stack"><h2>Plan de cuatro semanas</h2><div class="card tablewrap"><table><tbody>'+T.plan.map(function(p){return'<tr><td class="num">'+p[0]+"</td><td>"+p[1]+"</td></tr>";}).join("")+"</tbody></table></div></section>"+
     '<section class="stack"><h2>Plantillas útiles</h2><ul class="exlist">'+[["I am writing to let you know that…","Correo: abrir con el motivo"],["I would appreciate it if you could…","Correo: pedir algo con cortesía"],["While I see why some people believe that…, I think…","Discusión: conceder y tomar postura"],["One reason for this is that…","Speaking: dar una razón"],["For instance, last year I…","Speaking: dar un ejemplo personal"]].map(function(e){return"<li>"+sayBtn(e[0])+'<div><div class="en">'+esc(e[0])+'</div><div class="es">'+esc(e[1])+"</div></div></li>";}).join("")+"</ul></section>";
   }
-  return h;
+  return h+"</div>";
 }
 
 /* ---------- Ruteo por hash ---------- */
@@ -345,6 +379,7 @@ document.addEventListener("click",function(e){
   var b=e.target.closest("[data-act]");if(!b)return;
   var a=b.dataset.act,z,i,s,key;
   if(a==="say"){say(b.dataset.say,!!b.dataset.slow);}
+  else if(a==="video"){stopAudio();b.innerHTML='<iframe src="https://www.youtube-nocookie.com/embed/'+b.dataset.id+'?autoplay=1&rel=0" title="Video de YouTube" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>';b.removeAttribute("data-act");}
   else if(a==="stop"){stopAudio();document.body.classList.remove("speaking");}
   else if(a==="scene"){var ls=SCN[b.dataset.key];if(ls)say(ls.map(function(l){return{text:l[2],voice:l[0]};}),!!b.dataset.slow);}
   else if(a==="nextq"){heroIdx++;var sc=document.getElementById("screen");if(sc)sc.innerHTML=heroScreen();}

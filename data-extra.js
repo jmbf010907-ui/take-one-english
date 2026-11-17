@@ -96,3 +96,20 @@ window.TOEFL = {
  ],
  plan:[["Semana 1","Diagnóstico con la prueba de nivel y un simulacro. Repasa la gramática de B2. 20 palabras académicas al día."],["Semana 2","Reading y Listening: dos textos y dos audios diarios, revisando cada error."],["Semana 3","Writing y Speaking: un correo y una discusión al día; grábate en la entrevista y escucha tus muletillas."],["Semana 4","Simulacros completos con cronómetro, repaso de errores y descanso el día previo."]]
 };
+
+/* Videos de YouTube. Se reproducen dentro de la página cuando el sitio lo permite; si no, abren en YouTube. */
+window.VIDEOS = [
+ {id:"DjShiTl2hlo", level:"a1", kind:"Clase", t:"Basic Greetings and Introductions", task:"Pausa después de cada saludo y repítelo en voz alta. Anota tres que no conocías."},
+ {id:"PoqgDtIsZ8o", level:"a2", kind:"Conversación", t:"English Conversation for Beginners", task:"Distingue los saludos formales de los informales y escribe uno de cada tipo."},
+ {id:"WDJlTaihMsY", level:"b1", kind:"Curso de la BBC", t:"BBC Learning English: curso intermedio, unidad 1", task:"Velo una vez sin subtítulos y otra con subtítulos en inglés. Resume de qué trata en tres oraciones."},
+ {id:"j9b1CNN_rFU", level:"b1", kind:"Gramática de la BBC", t:"Asking Questions, 6 Minute Grammar", task:"Escribe cinco preguntas tuyas con las estructuras que explican."},
+ {id:"MMmOLN5zBLY", level:"b2", kind:"TED-Ed", t:"The benefits of a bilingual brain", task:"Anota los tipos de bilingüismo que menciona y explica en inglés cuál es el tuyo."},
+ {id:"eIho2S0ZahI", level:"c1", kind:"Charla TED", t:"How to speak so that people want to listen", task:"Haz en voz alta los ejercicios de voz que propone y aplica uno al grabar tu respuesta de speaking."},
+ {id:"YEaSxhcns7Y", level:"c2", kind:"TED-Ed", t:"Where did English come from?", task:"Explica en un minuto, sin notas, por qué el inglés mezcla vocabulario germánico y latino."},
+ {id:"fcN0BXzK8bg", level:"c2", kind:"Podcast de la BBC", t:"6 Minute English: All About Language", task:"Elige un episodio, anota su vocabulario y úsalo en un párrafo de opinión."},
+ {id:"Ap8GfXXJCNM", level:"cine", kind:"Tráiler", t:"Paddington in Peru", task:"Nivel A2. Escribe quiénes aparecen y a dónde van."},
+ {id:"wOhH7gn54BM", level:"cine", kind:"Tráiler", t:"Forrest Gump", task:"Nivel B1. Apunta dos frases que entiendas completas y repítelas con la misma entonación."},
+ {id:"YoHD9XEInc0", level:"cine", kind:"Tráiler", t:"Inception", task:"Nivel B2. Explica la premisa de la película en tres oraciones usando el presente simple."},
+ {id:"vdahkGSG5tU", level:"toefl", kind:"Explicación", t:"New TOEFL Exam Explained", task:"Compara lo que explica con la tabla de formato y anota tus dudas."},
+ {id:"DvRLnXJGZZ0", level:"toefl", kind:"Guía", t:"TOEFL iBT 2026: What Changed and How to Prepare", task:"Escribe qué sección te preocupa más y por qué, en inglés."}
+];
